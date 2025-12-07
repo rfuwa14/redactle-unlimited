@@ -139,32 +139,54 @@ function newGame() {
 	saveGameState()
 }
 async function loadArticle() {
-	// Fetch from wikimedia rest api e.g. https://en.wikipedia.org/api/rest_v1/page/mobile-sections/Australia_%28continent%29
-	let response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/mobile-sections/${gameState.urlTitle}`)
-	let data = await response.json()
-	let count = 0
-	let html = data.lead.sections[0].text
-	let text = getText(html)
-	loading=true
-	count += text.length
-	wikiSections = []
-	wikiSections.push({
-		text: text,
-		headline: striptags(data.lead.displaytitle)
+	// Fetch from Wikipedia mobile-html endpoint (has CORS enabled)
+	let response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/mobile-html/${gameState.urlTitle}`, {
+		headers: {
+			'Api-User-Agent': 'Redactle-Unlimited/1.0 (Educational word puzzle game)'
+		}
 	})
-	let i = 0;
-	while(count < 100000 && i < data.remaining.sections.length) {
-		html = data.remaining.sections[i].text
-		text = getText(html)
-		count += text.length
+	let htmlDoc = await response.text()
+
+	// Parse HTML to extract title and sections
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(htmlDoc, 'text/html');
+
+	// Extract display title
+	const titleElement = doc.querySelector('.mw-page-title-main');
+	const displaytitle = titleElement ? titleElement.textContent : 'Unknown';
+
+	// Extract all sections
+	const sectionElements = doc.querySelectorAll('section[data-mw-section-id]');
+
+	let count = 0;
+	loading = true;
+	wikiSections = [];
+
+	// Process each section
+	for (let i = 0; i < sectionElements.length && count < 100000; i++) {
+		const section = sectionElements[i];
+		const sectionId = section.getAttribute('data-mw-section-id');
+		const html = section.innerHTML;
+		const text = getText(html);
+
+		// Extract heading for non-lead sections
+		let headline = '';
+		if (sectionId === '0') {
+			headline = displaytitle;
+		} else {
+			const headingElement = section.querySelector('h2, h3');
+			headline = headingElement ? striptags(headingElement.textContent) : '';
+		}
+
+		count += text.length;
 		wikiSections.push({
 			text: text,
-			headline: striptags(data.remaining.sections[i].line)
-		})
-		i++
+			headline: headline
+		});
 	}
-	window.location.href = '#article/' + base64encode(gameState.urlTitle)
-	renderTokens()
+
+	window.location.href = '#article/' + base64encode(gameState.urlTitle);
+	renderTokens();
 }
 function getText(html) {
 	 if (typeof window !== "undefined") {
